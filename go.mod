@@ -1,6 +1,6 @@
 module github.com/mopo3ula/inmempubsub
 
-go 1.24.1
+go 1.22.3
 
 require github.com/stretchr/testify v1.10.0
 

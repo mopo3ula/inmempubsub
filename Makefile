@@ -1,3 +1,5 @@
+all: test vet staticcheck
+
 test:
 	go test -race -count=1 ./...
 
