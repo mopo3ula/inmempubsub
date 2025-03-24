@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	inmemLogger "github.com/mopo3ula/inmempubsub/internal/logger"
+	"github.com/mopo3ula/inmempubsub/internal/logger"
 )
 
 type Publisher interface {
@@ -27,10 +27,10 @@ type handler struct {
 type PubSub struct {
 	subscribers *subscribers
 	wg          sync.WaitGroup
-	logger      inmemLogger.Logger
+	logger      logger.Logger
 }
 
-func NewPubSub(logger inmemLogger.Logger) *PubSub {
+func NewPubSub(logger logger.Logger) *PubSub {
 	return &PubSub{
 		subscribers: &subscribers{m: map[string]*handler{}},
 		logger:      logger,
@@ -38,6 +38,12 @@ func NewPubSub(logger inmemLogger.Logger) *PubSub {
 }
 
 func (ps *PubSub) addSubscriber(ctx context.Context, s Subscriber) {
+	_, ok := ps.subscribers.Load(s.Topic())
+	if ok {
+		ps.logger.Errorf("subscriber '%s' already exists", s.Topic())
+		return
+	}
+
 	h := &handler{
 		data:   s.Data(),
 		handle: s.Handle(),
@@ -60,6 +66,7 @@ func (ps *PubSub) AddSubscribers(ctx context.Context, subscribers ...Subscriber)
 func (ps *PubSub) stopTopic(topic string) {
 	val, ok := ps.subscribers.Load(topic)
 	if !ok {
+		ps.logger.Errorf("no subscriber with name '%s'", topic)
 		return
 	}
 

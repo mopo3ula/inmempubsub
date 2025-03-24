@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log"
 
-	inmemLogger "github.com/mopo3ula/inmempubsub/internal/logger"
+	"github.com/mopo3ula/inmempubsub/internal/logger"
 )
 
-type StdLogger inmemLogger.Logger
+type StdLogger logger.Logger
 
 const loggingPrefix = "local_inmem"
 

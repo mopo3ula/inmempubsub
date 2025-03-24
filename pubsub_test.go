@@ -9,29 +9,46 @@ import (
 )
 
 var ctx = context.Background()
-var logger = StdDebugLogger{}
+var debugLogger = StdDebugLogger{}
 
 func TestPubSub_AddSubscriber(t *testing.T) {
 	t.Parallel()
 
-	ps := NewPubSub(logger)
+	t.Run("add subscriber success", func(t *testing.T) {
+		t.Parallel()
 
-	sub1 := newMockSubscriber()
-	sub2 := newMockSubscriber()
+		ps := NewPubSub(debugLogger)
 
-	ps.AddSubscribers(ctx, sub1, sub2)
+		sub1 := newMockSubscriber()
+		sub2 := newMockSubscriber()
 
-	assert.Len(t, ps.subscribers.m, 2)
+		ps.AddSubscribers(ctx, sub1, sub2)
 
-	ps.Stop()
+		assert.Len(t, ps.subscribers.m, 2)
 
-	assert.Len(t, ps.subscribers.m, 0)
+		ps.Stop()
+
+		assert.Len(t, ps.subscribers.m, 0)
+	})
+
+	t.Run("fail only one subscriber", func(t *testing.T) {
+		t.Parallel()
+
+		ps := NewPubSub(debugLogger)
+
+		sub1 := newMockSubscriber(withTopicName("same_topic_name"))
+		sub2 := newMockSubscriber(withTopicName("same_topic_name"))
+
+		ps.AddSubscribers(ctx, sub1, sub2)
+
+		assert.Len(t, ps.subscribers.m, 1)
+	})
 }
 
 func TestPubSub_DeleteSubscriber(t *testing.T) {
 	t.Parallel()
 
-	ps := NewPubSub(logger)
+	ps := NewPubSub(debugLogger)
 
 	sub := newMockSubscriber()
 	ps.AddSubscribers(ctx, sub)
@@ -51,13 +68,13 @@ func TestPubSub_DeleteSubscriber(t *testing.T) {
 func TestPubSub_Stop(t *testing.T) {
 	t.Parallel()
 
-	ps := NewPubSub(logger)
+	ps := NewPubSub(debugLogger)
 
 	assert.NotPanics(t, func() { ps.Stop() })
 }
 
 func BenchmarkPubSub_DeleteSubscriber(b *testing.B) {
-	ps := NewPubSub(logger)
+	ps := NewPubSub(debugLogger)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -78,11 +95,17 @@ func BenchmarkPubSub_DeleteSubscriber(b *testing.B) {
 	}
 }
 
-func newMockSubscriber() mockSubscriber {
-	return mockSubscriber{
+func newMockSubscriber(opts ...subOption) mockSubscriber {
+	sub := mockSubscriber{
 		topic: internal.RandString(15),
 		data:  make(chan any),
 	}
+
+	for _, opt := range opts {
+		opt(&sub)
+	}
+
+	return sub
 }
 
 type mockSubscriber struct {
@@ -100,4 +123,12 @@ func (m mockSubscriber) Topic() string {
 
 func (m mockSubscriber) Data() chan any {
 	return m.data
+}
+
+type subOption func(subscriber *mockSubscriber)
+
+func withTopicName(topicName string) subOption {
+	return func(ms *mockSubscriber) {
+		ms.topic = topicName
+	}
 }
