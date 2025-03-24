@@ -17,9 +17,8 @@ func (s *subscribers) Load(key string) (*handler, bool) {
 
 func (s *subscribers) Store(key string, val *handler) {
 	s.Lock()
-	defer s.Unlock()
-
 	s.m[key] = val
+	s.Unlock()
 }
 
 func (s *subscribers) Del(key string) {
