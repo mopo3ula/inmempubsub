@@ -9,7 +9,7 @@ import (
 
 type StdLogger logger.Logger
 
-const loggingPrefix = "local_inmem"
+const loggingPrefix = "local_inmem_test"
 
 type StdDebugLogger struct{}
 
@@ -34,3 +34,17 @@ func (l StdDebugLogger) Debugf(format string, v ...interface{}) {
 }
 
 func (l StdDebugLogger) Tracef(_ string, _ ...interface{}) {}
+
+type EmptyLogger struct{}
+
+func (l EmptyLogger) Fatalf(_ string, _ ...interface{}) {}
+
+func (l EmptyLogger) Errorf(_ string, _ ...interface{}) {}
+
+func (l EmptyLogger) Warnf(_ string, _ ...interface{}) {}
+
+func (l EmptyLogger) Infof(_ string, _ ...interface{}) {}
+
+func (l EmptyLogger) Debugf(_ string, _ ...interface{}) {}
+
+func (l EmptyLogger) Tracef(_ string, _ ...interface{}) {}

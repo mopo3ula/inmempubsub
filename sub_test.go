@@ -13,39 +13,23 @@ func TestSubscribers_Load(t *testing.T) {
 	t.Parallel()
 
 	s := subscribers{
-		m: make(map[string]*handler),
+		m: make(map[string][]*handler),
 	}
 
 	key := internal.RandString(10)
 	value := &handler{}
-	s.Store(key, value)
+	s.Add(key, value)
 
-	val, ok := s.Load(key)
+	handlers, ok := s.Load(key)
 	if assert.True(t, ok) {
-		assert.Equal(t, value, val)
+		assert.Equal(t, value, handlers[0])
+		assert.Len(t, handlers, 1)
 	}
 
 	missingKey := internal.RandString(10)
-	val, ok = s.Load(missingKey)
+	handlers, ok = s.Load(missingKey)
 	if assert.False(t, ok) {
-		assert.Nil(t, val)
-	}
-}
-
-func TestSubscribers_Store(t *testing.T) {
-	t.Parallel()
-
-	s := &subscribers{
-		m: make(map[string]*handler),
-	}
-
-	key := internal.RandString(10)
-	value := &handler{}
-	s.Store(key, value)
-
-	val, ok := s.Load(key)
-	if assert.True(t, ok) {
-		assert.Equal(t, value, val)
+		assert.Nil(t, handlers)
 	}
 }
 
@@ -53,12 +37,12 @@ func TestSubscribers_Del(t *testing.T) {
 	t.Parallel()
 
 	s := &subscribers{
-		m: make(map[string]*handler),
+		m: make(map[string][]*handler),
 	}
 
 	key := internal.RandString(10)
 	value := &handler{}
-	s.Store(key, value)
+	s.Add(key, value)
 
 	s.Del(key)
 
@@ -68,11 +52,32 @@ func TestSubscribers_Del(t *testing.T) {
 	}
 }
 
+func TestSubscribers_Add(t *testing.T) {
+	t.Parallel()
+
+	s := &subscribers{
+		m: make(map[string][]*handler),
+	}
+
+	key := internal.RandString(10)
+	h1, h2 := &handler{}, &handler{}
+	s.Add(key, h1, h2)
+
+	handlers, ok := s.Load(key)
+	if assert.True(t, ok) {
+		assert.Equal(t, h1, handlers[0])
+		assert.Equal(t, h2, handlers[1])
+		assert.Len(t, handlers, 2)
+	}
+
+	assert.Equal(t, 1, s.Len())
+}
+
 func TestSubscribers_Concurrency(t *testing.T) {
 	t.Parallel()
 
 	s := &subscribers{
-		m: make(map[string]*handler),
+		m: make(map[string][]*handler),
 	}
 
 	var wg sync.WaitGroup
@@ -85,14 +90,28 @@ func TestSubscribers_Concurrency(t *testing.T) {
 			key := fmt.Sprintf("key_%d", i)
 			value := &handler{}
 
-			s.Store(key, value)
+			s.Add(key, value)
 
-			val, ok := s.Load(key)
+			handlers, ok := s.Load(key)
 			if assert.True(t, ok) {
-				assert.Equal(t, value, val)
+				assert.Equal(t, value, handlers[0])
+				assert.Len(t, handlers, 1)
 			}
 		}(i)
 	}
 
 	wg.Wait()
+}
+
+func TestSubscribers_Len(t *testing.T) {
+	t.Parallel()
+
+	s := &subscribers{
+		m: make(map[string][]*handler),
+	}
+
+	key := internal.RandString(10)
+	h1, h2, h3 := &handler{}, &handler{}, &handler{}
+	s.Add(key, h1, h2, h3)
+	assert.Equal(t, 1, s.Len())
 }
