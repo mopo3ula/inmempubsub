@@ -6,28 +6,28 @@ import (
 
 type subscribers struct {
 	sync.RWMutex
-	m map[string][]*handler
+	m map[Topic][]*handler
 }
 
-func (s *subscribers) Load(key string) ([]*handler, bool) {
+func (s *subscribers) Load(topic Topic) ([]*handler, bool) {
 	s.RLock()
-	val, ok := s.m[key]
+	val, ok := s.m[topic]
 	s.RUnlock()
 
 	return val, ok
 }
 
-func (s *subscribers) Add(key string, handlers ...*handler) {
+func (s *subscribers) Add(topic Topic, handlers ...*handler) {
 	for _, h := range handlers {
 		s.Lock()
-		s.m[key] = append(s.m[key], h)
+		s.m[topic] = append(s.m[topic], h)
 		s.Unlock()
 	}
 }
 
-func (s *subscribers) Del(key string) {
+func (s *subscribers) Del(topic Topic) {
 	s.Lock()
-	delete(s.m, key)
+	delete(s.m, topic)
 	s.Unlock()
 }
 
