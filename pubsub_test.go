@@ -40,8 +40,8 @@ func TestPubSub_AddSubscriber(t *testing.T) {
 
 		ps := NewPubSub(debugLogger)
 
-		sub1 := newMockSubscriber(withTopicName("same_topic_name"))
-		sub2 := newMockSubscriber(withTopicName("same_topic_name"))
+		sub1 := newMockSubscriber(withTopic("same_topic_name"))
+		sub2 := newMockSubscriber(withTopic("same_topic_name"))
 
 		ps.AddSubscribers(ctx, sub1, sub2)
 
@@ -100,12 +100,12 @@ func BenchmarkPubSub_DeleteSubscriber(b *testing.B) {
 }
 
 func TestPubSub_Send(t *testing.T) {
-	key := "common_topic_name"
+	topic := NewTopic("common_topic_name")
 
 	subs := []*mockSubscriber{
-		newMockSubscriber(withTopicName(key)),
-		newMockSubscriber(withTopicName(key)),
-		newMockSubscriber(withTopicName(key)),
+		newMockSubscriber(withTopic(topic)),
+		newMockSubscriber(withTopic(topic)),
+		newMockSubscriber(withTopic(topic)),
 	}
 	ps := NewPubSub(debugLogger)
 	for _, sub := range subs {
@@ -115,7 +115,7 @@ func TestPubSub_Send(t *testing.T) {
 	defer ps.Stop()
 
 	data := internal.RandString(10)
-	ps.Send(key, data)
+	ps.Send(topic, data)
 
 	var wg sync.WaitGroup
 	wg.Add(len(subs))
@@ -138,7 +138,7 @@ func TestPubSub_Send(t *testing.T) {
 
 func newMockSubscriber(opts ...subOption) *mockSubscriber {
 	sub := &mockSubscriber{
-		topic:    internal.RandString(10),
+		topic:    Topic(internal.RandString(10)),
 		data:     make(chan any),
 		logger:   debugLogger,
 		received: make(chan string),
@@ -152,7 +152,7 @@ func newMockSubscriber(opts ...subOption) *mockSubscriber {
 }
 
 type mockSubscriber struct {
-	topic    string
+	topic    Topic
 	data     chan any
 	logger   logger.Logger
 	received chan string
@@ -169,7 +169,7 @@ func (m *mockSubscriber) Handle() func(_ context.Context, data any) error {
 	}
 }
 
-func (m *mockSubscriber) Topic() string {
+func (m *mockSubscriber) Topic() Topic {
 	return m.topic
 }
 
@@ -179,8 +179,8 @@ func (m *mockSubscriber) Data() chan any {
 
 type subOption func(subscriber *mockSubscriber)
 
-func withTopicName(topicName string) subOption {
+func withTopic(topic Topic) subOption {
 	return func(ms *mockSubscriber) {
-		ms.topic = topicName
+		ms.topic = topic
 	}
 }

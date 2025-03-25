@@ -8,12 +8,12 @@ import (
 )
 
 type Publisher interface {
-	Send(topic string, data any)
+	Send(topic Topic, data any)
 }
 
 type Subscriber interface {
 	Handle() func(ctx context.Context, data any) error
-	Topic() string
+	Topic() Topic
 	Data() chan any
 }
 
@@ -32,7 +32,7 @@ type PubSub struct {
 
 func NewPubSub(logger logger.Logger) *PubSub {
 	return &PubSub{
-		subscribers: &subscribers{m: map[string][]*handler{}},
+		subscribers: &subscribers{m: map[Topic][]*handler{}},
 		logger:      logger,
 	}
 }
@@ -57,7 +57,7 @@ func (ps *PubSub) AddSubscribers(ctx context.Context, subscribers ...Subscriber)
 	}
 }
 
-func (ps *PubSub) stopTopic(topic string) {
+func (ps *PubSub) stopTopic(topic Topic) {
 	handlers, ok := ps.subscribers.Load(topic)
 	if !ok {
 		ps.logger.Errorf("no subscriber with name '%s'", topic)
@@ -81,7 +81,7 @@ func (ps *PubSub) Stop() {
 	ps.subscribers.Lock()
 	for topic := range ps.subscribers.m {
 		stopWg.Add(1)
-		go func(w *sync.WaitGroup, t string) {
+		go func(w *sync.WaitGroup, t Topic) {
 			defer w.Done()
 
 			ps.stopTopic(t)
@@ -93,7 +93,7 @@ func (ps *PubSub) Stop() {
 	ps.wg.Wait()
 }
 
-func (ps *PubSub) Send(topic string, data any) {
+func (ps *PubSub) Send(topic Topic, data any) {
 	if handlers, ok := ps.subscribers.Load(topic); ok {
 		for _, h := range handlers {
 			h.data <- data

@@ -3,11 +3,7 @@ package inmemory
 import (
 	"fmt"
 	"log"
-
-	"github.com/mopo3ula/inmempubsub/internal/logger"
 )
-
-type StdLogger logger.Logger
 
 const loggingPrefix = "local_inmem_test"
 

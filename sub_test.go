@@ -13,10 +13,10 @@ func TestSubscribers_Load(t *testing.T) {
 	t.Parallel()
 
 	s := subscribers{
-		m: make(map[string][]*handler),
+		m: make(map[Topic][]*handler),
 	}
 
-	key := internal.RandString(10)
+	key := NewTopic(internal.RandString(10))
 	value := &handler{}
 	s.Add(key, value)
 
@@ -26,7 +26,7 @@ func TestSubscribers_Load(t *testing.T) {
 		assert.Len(t, handlers, 1)
 	}
 
-	missingKey := internal.RandString(10)
+	missingKey := NewTopic(internal.RandString(10))
 	handlers, ok = s.Load(missingKey)
 	if assert.False(t, ok) {
 		assert.Nil(t, handlers)
@@ -37,10 +37,10 @@ func TestSubscribers_Del(t *testing.T) {
 	t.Parallel()
 
 	s := &subscribers{
-		m: make(map[string][]*handler),
+		m: make(map[Topic][]*handler),
 	}
 
-	key := internal.RandString(10)
+	key := NewTopic(internal.RandString(10))
 	value := &handler{}
 	s.Add(key, value)
 
@@ -56,10 +56,10 @@ func TestSubscribers_Add(t *testing.T) {
 	t.Parallel()
 
 	s := &subscribers{
-		m: make(map[string][]*handler),
+		m: make(map[Topic][]*handler),
 	}
 
-	key := internal.RandString(10)
+	key := NewTopic(internal.RandString(10))
 	h1, h2 := &handler{}, &handler{}
 	s.Add(key, h1, h2)
 
@@ -77,7 +77,7 @@ func TestSubscribers_Concurrency(t *testing.T) {
 	t.Parallel()
 
 	s := &subscribers{
-		m: make(map[string][]*handler),
+		m: make(map[Topic][]*handler),
 	}
 
 	var wg sync.WaitGroup
@@ -87,7 +87,7 @@ func TestSubscribers_Concurrency(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(i int) {
 			defer wg.Done()
-			key := fmt.Sprintf("key_%d", i)
+			key := NewTopic(fmt.Sprintf("key_%d", i))
 			value := &handler{}
 
 			s.Add(key, value)
@@ -107,10 +107,10 @@ func TestSubscribers_Len(t *testing.T) {
 	t.Parallel()
 
 	s := &subscribers{
-		m: make(map[string][]*handler),
+		m: make(map[Topic][]*handler),
 	}
 
-	key := internal.RandString(10)
+	key := NewTopic(internal.RandString(10))
 	h1, h2, h3 := &handler{}, &handler{}, &handler{}
 	s.Add(key, h1, h2, h3)
 	assert.Equal(t, 1, s.Len())
