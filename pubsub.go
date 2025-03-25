@@ -32,18 +32,12 @@ type PubSub struct {
 
 func NewPubSub(logger logger.Logger) *PubSub {
 	return &PubSub{
-		subscribers: &subscribers{m: map[string]*handler{}},
+		subscribers: &subscribers{m: map[string][]*handler{}},
 		logger:      logger,
 	}
 }
 
 func (ps *PubSub) addSubscriber(ctx context.Context, s Subscriber) {
-	_, ok := ps.subscribers.Load(s.Topic())
-	if ok {
-		ps.logger.Errorf("subscriber '%s' already exists", s.Topic())
-		return
-	}
-
 	h := &handler{
 		data:   s.Data(),
 		handle: s.Handle(),
@@ -51,7 +45,7 @@ func (ps *PubSub) addSubscriber(ctx context.Context, s Subscriber) {
 		wg:     sync.WaitGroup{},
 	}
 
-	ps.subscribers.Store(s.Topic(), h)
+	ps.subscribers.Add(s.Topic(), h)
 
 	ps.wg.Add(1)
 	go ps.runSubscriber(ctx, h)
@@ -64,7 +58,7 @@ func (ps *PubSub) AddSubscribers(ctx context.Context, subscribers ...Subscriber)
 }
 
 func (ps *PubSub) stopTopic(topic string) {
-	val, ok := ps.subscribers.Load(topic)
+	handlers, ok := ps.subscribers.Load(topic)
 	if !ok {
 		ps.logger.Errorf("no subscriber with name '%s'", topic)
 		return
@@ -72,11 +66,13 @@ func (ps *PubSub) stopTopic(topic string) {
 
 	ps.subscribers.Del(topic)
 
-	close(val.done) // finish signal for handler
-	val.wg.Wait()   // wait for all subscribers
+	for _, h := range handlers {
+		close(h.done) // finish signal for handler
+		h.wg.Wait()   // wait for all subscribers
 
-	// close data channel
-	close(val.data)
+		// close data channel
+		close(h.data)
+	}
 }
 
 func (ps *PubSub) Stop() {
@@ -98,10 +94,9 @@ func (ps *PubSub) Stop() {
 }
 
 func (ps *PubSub) Send(topic string, data any) {
-	if h, ok := ps.subscribers.Load(topic); ok {
-		select {
-		case h.data <- data:
-		default:
+	if handlers, ok := ps.subscribers.Load(topic); ok {
+		for _, h := range handlers {
+			h.data <- data
 		}
 	}
 }

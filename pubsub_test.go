@@ -2,14 +2,18 @@ package inmemory
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/mopo3ula/inmempubsub/internal"
+	"github.com/mopo3ula/inmempubsub/internal/logger"
 	"github.com/stretchr/testify/assert"
 )
 
 var ctx = context.Background()
 var debugLogger = StdDebugLogger{}
+var emptyLogger = EmptyLogger{}
 
 func TestPubSub_AddSubscriber(t *testing.T) {
 	t.Parallel()
@@ -74,7 +78,7 @@ func TestPubSub_Stop(t *testing.T) {
 }
 
 func BenchmarkPubSub_DeleteSubscriber(b *testing.B) {
-	ps := NewPubSub(debugLogger)
+	ps := NewPubSub(emptyLogger)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -95,33 +99,81 @@ func BenchmarkPubSub_DeleteSubscriber(b *testing.B) {
 	}
 }
 
-func newMockSubscriber(opts ...subOption) mockSubscriber {
-	sub := mockSubscriber{
-		topic: internal.RandString(15),
-		data:  make(chan any),
+func TestPubSub_Send(t *testing.T) {
+	key := "common_topic_name"
+
+	subs := []*mockSubscriber{
+		newMockSubscriber(withTopicName(key)),
+		newMockSubscriber(withTopicName(key)),
+		newMockSubscriber(withTopicName(key)),
+	}
+	ps := NewPubSub(debugLogger)
+	for _, sub := range subs {
+		ps.AddSubscribers(ctx, sub)
+	}
+
+	defer ps.Stop()
+
+	data := internal.RandString(10)
+	ps.Send(key, data)
+
+	var wg sync.WaitGroup
+	wg.Add(len(subs))
+
+	var handleTimes atomic.Int32
+	for _, sub := range subs {
+		go func(s *mockSubscriber) {
+			defer wg.Done()
+
+			<-s.received
+			close(s.received)
+
+			handleTimes.Add(1)
+		}(sub)
+	}
+
+	wg.Wait()
+	assert.Equal(t, int32(len(subs)), handleTimes.Load())
+}
+
+func newMockSubscriber(opts ...subOption) *mockSubscriber {
+	sub := &mockSubscriber{
+		topic:    internal.RandString(10),
+		data:     make(chan any),
+		logger:   debugLogger,
+		received: make(chan string),
 	}
 
 	for _, opt := range opts {
-		opt(&sub)
+		opt(sub)
 	}
 
 	return sub
 }
 
 type mockSubscriber struct {
-	topic string
-	data  chan any
+	topic    string
+	data     chan any
+	logger   logger.Logger
+	received chan string
 }
 
-func (m mockSubscriber) Handle() func(_ context.Context, _ any) error {
-	return nil
+func (m *mockSubscriber) Handle() func(_ context.Context, data any) error {
+	return func(_ context.Context, data any) error {
+		if d, ok := data.(string); ok {
+			m.logger.Debugf("received data '%s' for topic '%s'", d, m.Topic())
+			m.received <- d
+		}
+
+		return nil
+	}
 }
 
-func (m mockSubscriber) Topic() string {
+func (m *mockSubscriber) Topic() string {
 	return m.topic
 }
 
-func (m mockSubscriber) Data() chan any {
+func (m *mockSubscriber) Data() chan any {
 	return m.data
 }
 
