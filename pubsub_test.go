@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mopo3ula/inmempubsub/internal"
 	"github.com/mopo3ula/inmempubsub/internal/logger"
@@ -26,7 +27,7 @@ func TestPubSub_AddSubscriber(t *testing.T) {
 		sub1 := newMockSubscriber()
 		sub2 := newMockSubscriber()
 
-		ps.AddSubscribers(ctx, sub1, sub2)
+		ps.AddSubscribers(ctx, []Subscriber{sub1, sub2})
 
 		assert.Len(t, ps.subscribers.m, 2)
 
@@ -43,7 +44,7 @@ func TestPubSub_AddSubscriber(t *testing.T) {
 		sub1 := newMockSubscriber(withTopic("same_topic_name"))
 		sub2 := newMockSubscriber(withTopic("same_topic_name"))
 
-		ps.AddSubscribers(ctx, sub1, sub2)
+		ps.AddSubscribers(ctx, []Subscriber{sub1, sub2})
 
 		assert.Len(t, ps.subscribers.m, 1)
 	})
@@ -55,7 +56,7 @@ func TestPubSub_DeleteSubscriber(t *testing.T) {
 	ps := NewPubSub(debugLogger)
 
 	sub := newMockSubscriber()
-	ps.AddSubscribers(ctx, sub)
+	ps.AddSubscriber(ctx, sub)
 
 	_, ok := ps.subscribers.Load(sub.Topic())
 	assert.True(t, ok)
@@ -84,7 +85,7 @@ func BenchmarkPubSub_DeleteSubscriber(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		sub := newMockSubscriber()
-		ps.AddSubscribers(ctx, sub)
+		ps.AddSubscriber(ctx, sub)
 
 		_, ok := ps.subscribers.Load(sub.Topic())
 		assert.True(b, ok)
@@ -100,40 +101,86 @@ func BenchmarkPubSub_DeleteSubscriber(b *testing.B) {
 }
 
 func TestPubSub_Send(t *testing.T) {
-	topic := NewTopic("common_topic_name")
+	t.Parallel()
 
-	subs := []*mockSubscriber{
-		newMockSubscriber(withTopic(topic)),
-		newMockSubscriber(withTopic(topic)),
-		newMockSubscriber(withTopic(topic)),
-	}
-	ps := NewPubSub(debugLogger)
-	for _, sub := range subs {
-		ps.AddSubscribers(ctx, sub)
-	}
+	t.Run("multiple send", func(t *testing.T) {
+		t.Parallel()
 
-	defer ps.Stop()
+		topic := NewTopic("common_topic_name")
 
-	data := internal.RandString(10)
-	ps.Send(topic, data)
+		subs := []*mockSubscriber{
+			newMockSubscriber(withTopic(topic)),
+			newMockSubscriber(withTopic(topic)),
+			newMockSubscriber(withTopic(topic)),
+		}
+		ps := NewPubSub(debugLogger)
+		for _, sub := range subs {
+			ps.AddSubscriber(ctx, sub)
+		}
 
-	var wg sync.WaitGroup
-	wg.Add(len(subs))
+		defer ps.Stop()
 
-	var handleTimes atomic.Int32
-	for _, sub := range subs {
+		data := internal.RandString(10)
+		ps.Send(topic, data)
+
+		var wg sync.WaitGroup
+		wg.Add(len(subs))
+
+		var handleTimes atomic.Int32
+		for _, sub := range subs {
+			go func(s *mockSubscriber) {
+				defer wg.Done()
+
+				<-s.received
+				close(s.received)
+
+				handleTimes.Add(1)
+			}(sub)
+		}
+
+		wg.Wait()
+		assert.Equal(t, int32(len(subs)), handleTimes.Load())
+	})
+
+	t.Run("multiple send with semaphore", func(t *testing.T) {
+		t.Parallel()
+
+		start := time.Now()
+		topic := NewTopic("sem_topic_name")
+
+		sub := newMockSubscriber(
+			withTopic(topic),
+			withDelay(1*time.Second),
+		)
+		ps := NewPubSub(debugLogger)
+		ps.AddSubscriber(ctx, sub, WithMaxConcurrency(2))
+
+		defer ps.Stop()
+
+		n := 6
+		var wg sync.WaitGroup
+		wg.Add(n)
+		for i := 0; i < n; i++ {
+			go func() {
+				ps.Send(topic, internal.RandString(10))
+			}()
+		}
+
 		go func(s *mockSubscriber) {
-			defer wg.Done()
-
-			<-s.received
-			close(s.received)
-
-			handleTimes.Add(1)
+			for range s.received {
+				wg.Done()
+			}
 		}(sub)
-	}
 
-	wg.Wait()
-	assert.Equal(t, int32(len(subs)), handleTimes.Load())
+		wg.Wait()
+		close(sub.received)
+
+		testDur := time.Since(start)
+		delta := n / 2
+
+		assert.GreaterOrEqual(t, testDur.Seconds(), (time.Duration(delta) * time.Second).Seconds())
+		assert.LessOrEqual(t, testDur.Seconds(), (time.Duration(delta+1) * time.Second).Seconds())
+	})
 }
 
 func newMockSubscriber(opts ...subOption) *mockSubscriber {
@@ -156,12 +203,18 @@ type mockSubscriber struct {
 	data     chan any
 	logger   logger.Logger
 	received chan string
+	delay    *time.Duration
 }
 
 func (m *mockSubscriber) Handle() func(_ context.Context, data any) error {
 	return func(_ context.Context, data any) error {
 		if d, ok := data.(string); ok {
 			m.logger.Debugf("received data '%s' for topic '%s'", d, m.Topic())
+
+			if m.delay != nil {
+				time.Sleep(*m.delay)
+			}
+
 			m.received <- d
 		}
 
@@ -182,5 +235,11 @@ type subOption func(subscriber *mockSubscriber)
 func withTopic(topic Topic) subOption {
 	return func(ms *mockSubscriber) {
 		ms.topic = topic
+	}
+}
+
+func withDelay(d time.Duration) subOption {
+	return func(ms *mockSubscriber) {
+		ms.delay = &d
 	}
 }

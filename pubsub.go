@@ -22,6 +22,9 @@ type handler struct {
 	handle func(ctx context.Context, data any) error
 	done   chan struct{}
 	wg     sync.WaitGroup
+	sem    *semaphore
+
+	maxConcurrency int // default is ConcurrencyUnlimited
 }
 
 type PubSub struct {
@@ -37,12 +40,21 @@ func NewPubSub(logger logger.Logger) *PubSub {
 	}
 }
 
-func (ps *PubSub) addSubscriber(ctx context.Context, s Subscriber) {
+func (ps *PubSub) addSubscriber(ctx context.Context, s Subscriber, opts ...Option) {
 	h := &handler{
-		data:   s.Data(),
-		handle: s.Handle(),
-		done:   make(chan struct{}),
-		wg:     sync.WaitGroup{},
+		data:           s.Data(),
+		handle:         s.Handle(),
+		done:           make(chan struct{}),
+		wg:             sync.WaitGroup{},
+		maxConcurrency: ConcurrencyUnlimited,
+	}
+
+	for _, opt := range opts {
+		opt(h)
+	}
+
+	if h.maxConcurrency > ConcurrencyUnlimited {
+		h.sem = &semaphore{c: make(chan struct{}, h.maxConcurrency)}
 	}
 
 	ps.subscribers.Add(s.Topic(), h)
@@ -51,10 +63,14 @@ func (ps *PubSub) addSubscriber(ctx context.Context, s Subscriber) {
 	go ps.runSubscriber(ctx, h)
 }
 
-func (ps *PubSub) AddSubscribers(ctx context.Context, subscribers ...Subscriber) {
+func (ps *PubSub) AddSubscribers(ctx context.Context, subscribers []Subscriber, opts ...Option) {
 	for _, s := range subscribers {
-		ps.addSubscriber(ctx, s)
+		ps.addSubscriber(ctx, s, opts...)
 	}
+}
+
+func (ps *PubSub) AddSubscriber(ctx context.Context, subscriber Subscriber, opts ...Option) {
+	ps.addSubscriber(ctx, subscriber, opts...)
 }
 
 func (ps *PubSub) stopTopic(topic Topic) {
@@ -114,9 +130,14 @@ func (ps *PubSub) runSubscriber(ctx context.Context, h *handler) {
 			if !ok {
 				return
 			}
+
+			h.sem.acquire()
+
 			h.wg.Add(1)
 			go func(d any) {
 				defer h.wg.Done()
+				defer h.sem.release()
+
 				if h.handle != nil {
 					if err := h.handle(ctx, d); err != nil {
 						ps.logger.Errorf("handle error: %v", err)
