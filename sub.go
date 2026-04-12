@@ -32,5 +32,8 @@ func (s *subscribers) Del(topic Topic) {
 }
 
 func (s *subscribers) Len() int {
+	s.RLock()
+	defer s.RUnlock()
+
 	return len(s.m)
 }

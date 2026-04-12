@@ -18,13 +18,49 @@ type Subscriber interface {
 }
 
 type handler struct {
-	data   chan any
-	handle func(ctx context.Context, data any) error
-	done   chan struct{}
-	wg     sync.WaitGroup
-	sem    *semaphore
+	data     chan any
+	handle   func(ctx context.Context, data any) error
+	done     chan struct{}
+	loopDone chan struct{}
+	wg       sync.WaitGroup
+	sem      *semaphore
+	mu       sync.RWMutex
+	stopped  bool
 
 	maxConcurrency int // default is ConcurrencyUnlimited
+}
+
+func (h *handler) stop() {
+	h.mu.Lock()
+	if h.stopped {
+		h.mu.Unlock()
+		return
+	}
+
+	h.stopped = true
+	close(h.done)
+	h.mu.Unlock()
+
+	<-h.loopDone
+	h.wg.Wait()
+}
+
+func (h *handler) publish(data any) {
+	h.mu.RLock()
+	if h.stopped {
+		h.mu.RUnlock()
+		return
+	}
+
+	done := h.done
+	dataCh := h.data
+	h.mu.RUnlock()
+
+	select {
+	case <-done:
+		return
+	case dataCh <- data:
+	}
 }
 
 type PubSub struct {
@@ -45,6 +81,7 @@ func (ps *PubSub) addSubscriber(ctx context.Context, s Subscriber, opts ...Optio
 		data:           s.Data(),
 		handle:         s.Handle(),
 		done:           make(chan struct{}),
+		loopDone:       make(chan struct{}),
 		wg:             sync.WaitGroup{},
 		maxConcurrency: ConcurrencyUnlimited,
 	}
@@ -83,11 +120,7 @@ func (ps *PubSub) stopTopic(topic Topic) {
 	ps.subscribers.Del(topic)
 
 	for _, h := range handlers {
-		close(h.done) // finish signal for handler
-		h.wg.Wait()   // wait for all subscribers
-
-		// close data channel
-		close(h.data)
+		h.stop()
 	}
 }
 
@@ -112,13 +145,14 @@ func (ps *PubSub) Stop() {
 func (ps *PubSub) Send(topic Topic, data any) {
 	if handlers, ok := ps.subscribers.Load(topic); ok {
 		for _, h := range handlers {
-			h.data <- data
+			h.publish(data)
 		}
 	}
 }
 
 func (ps *PubSub) runSubscriber(ctx context.Context, h *handler) {
 	defer ps.wg.Done()
+	defer close(h.loopDone)
 
 	for {
 		select {
