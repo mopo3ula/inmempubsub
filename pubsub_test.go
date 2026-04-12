@@ -183,6 +183,73 @@ func TestPubSub_Send(t *testing.T) {
 	})
 }
 
+func TestPubSub_StopWhileSending(t *testing.T) {
+	t.Parallel()
+
+	topic := NewTopic("stop_while_sending")
+	sub := &noopSubscriber{topic: topic, data: make(chan any), delay: 10 * time.Millisecond}
+
+	ps := NewPubSub(debugLogger)
+	ps.AddSubscriber(ctx, sub, WithMaxConcurrency(1))
+
+	var sendWg sync.WaitGroup
+	senders := 50
+	sendWg.Add(senders)
+
+	for i := 0; i < senders; i++ {
+		go func(i int) {
+			defer sendWg.Done()
+			ps.Send(topic, internal.RandString(8))
+		}(i)
+	}
+
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		ps.Stop()
+	}()
+
+	select {
+	case <-stopDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pubsub stop timed out")
+	}
+
+	select {
+	case <-func() <-chan struct{} {
+		done := make(chan struct{})
+		go func() {
+			sendWg.Wait()
+			close(done)
+		}()
+		return done
+	}():
+	case <-time.After(5 * time.Second):
+		t.Fatal("senders did not complete")
+	}
+}
+
+type noopSubscriber struct {
+	topic Topic
+	data  chan any
+	delay time.Duration
+}
+
+func (n *noopSubscriber) Handle() func(_ context.Context, _ any) error {
+	return func(_ context.Context, _ any) error {
+		time.Sleep(n.delay)
+		return nil
+	}
+}
+
+func (n *noopSubscriber) Topic() Topic {
+	return n.topic
+}
+
+func (n *noopSubscriber) Data() chan any {
+	return n.data
+}
+
 func newMockSubscriber(opts ...subOption) *mockSubscriber {
 	sub := &mockSubscriber{
 		topic:    Topic(internal.RandString(10)),
